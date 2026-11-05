@@ -240,8 +240,11 @@ class App(tk.Tk):
         if not n:
             return messagebox.showinfo("Không có nhạc", "Chọn một bài nhạc (hoặc bỏ file .mp3 vào thư mục nhac).")
         self.nhac.set(n.stem)
-        self.player = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(n)],
-                                       creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            self.player = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", str(n)],
+                                           creationflags=subprocess.CREATE_NO_WINDOW)
+        except FileNotFoundError:
+            return messagebox.showerror("Thiếu ffmpeg", V.THIEU_FFMPEG or "Không tìm thấy ffplay.exe (đi kèm ffmpeg).")
         self.nut_nghe.config(text="■ Dừng")
 
     def nhac_tiktok(self):

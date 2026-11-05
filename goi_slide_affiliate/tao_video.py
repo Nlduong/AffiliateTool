@@ -1,11 +1,17 @@
 """Link sản phẩm -> lấy ảnh -> chèn vào mẫu slide -> video MP4 1080x1920.
 Sửa san_pham.txt rồi chạy: python tao_video.py"""
-import hashlib, html, json, random, re, subprocess, sys, tempfile, time, urllib.parse, urllib.request
+import hashlib, html, json, os, random, re, shutil, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 from pathlib import Path
 
 import tao_slide as T
 
 HERE = Path(__file__).parent
+# tìm ffmpeg cả ở thư mục "ffmpeg" cạnh tool và chỗ winget vừa cài (PATH của cửa sổ đang mở chưa kịp cập nhật)
+os.environ["PATH"] = os.pathsep.join([str(HERE / "ffmpeg"), str(HERE / "ffmpeg" / "bin"),
+                                      os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links"), os.environ.get("PATH", "")])
+THIEU_FFMPEG = None if shutil.which("ffmpeg") else (
+    "Máy này chưa có ffmpeg (chương trình xuất video). Đóng giao diện, bấm đúp Giao_dien.bat để tự cài, "
+    "hoặc chạy lệnh: winget install -e --id Gyan.FFmpeg.Essentials")
 OUT = HERE / "video"
 _env = HERE / ".env"
 ENV = dict(l.split("=", 1) for l in _env.read_text("utf-8-sig").splitlines()
@@ -202,6 +208,8 @@ def ds_nhac():
 
 def tao(cover, rows, folder, nhac=None):
     """1 video: rows = [[link, tên, mô tả, giá], ...] -> folder/video.mp4 (None nếu lỗi)."""
+    if THIEU_FFMPEG:
+        raise RuntimeError(THIEU_FFMPEG)
     (folder / "anh").mkdir(parents=True, exist_ok=True)
     items, imgs, aff, clips = [], [], [], {}
     # ảnh tự tải về để nguyên tên (không phải 1.jpg / 1_tay.jpg) -> gắn theo thứ tự thời gian tải: cũ nhất = món 1
