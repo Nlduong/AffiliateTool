@@ -1,0 +1,54 @@
+BỘ SLIDE AFFILIATE GIA DỤNG
+==========================
+
+TRONG THƯ MỤC
+  Tao_slide.bat           Bấm đúp để tạo lại 10 bài slide (PDF) vào thư mục 10_bai
+  tao_slide.py            Nội dung 10 bài + mẫu thiết kế (sửa chữ ở đây)
+  10_bai\                 10 file PDF đã tạo sẵn, tải lên Canva để thay ảnh
+  mau\                    File mẫu 3 trang (bìa, sản phẩm, chốt)
+  xem_truoc_10_bai.png    Ảnh xem trước cả 10 bài
+
+DÙNG NGAY (không cần cài gì)
+  Kéo file PDF trong thư mục 10_bai vào trang chủ canva.com -> bấm mở -> thay ảnh, sửa chữ.
+  Tải về: Chia sẻ -> Tải xuống -> PNG -> Tất cả các trang -> đăng TikTok chế độ Ảnh.
+
+TẠO LẠI / SỬA NỘI DUNG (cần cài 1 lần)
+  1. Cài Python 3.9 trở lên: https://www.python.org/downloads/
+     -> Khi cài nhớ tick "Add python.exe to PATH".
+  2. Có Google Chrome hoặc Microsoft Edge (Windows có sẵn Edge).
+  3. Máy có mạng (để tải font Montserrat và Be Vietnam Pro).
+  4. Mở tao_slide.py bằng Notepad:
+       - Đổi tên kênh: dòng  CHANNEL = "@tenkenhcuaban"
+       - Sửa tên món, mô tả, giá trong phần POSTS
+     Lưu lại (giữ mã hoá UTF-8).
+  5. Bấm đúp Tao_slide.bat -> PDF mới nằm trong thư mục 10_bai.
+
+LƯU Ý
+  - Giá "~50K" chỉ là ước tính, sửa đúng giá trên link gắn giỏ hàng.
+  - Bài 10: điền tên món và số "Đã bán" thật lúc đăng.
+  - Nếu Canva đổi font: chọn chữ, đổi lại Montserrat (tiêu đề, giá) hoặc Be Vietnam Pro (tên, mô tả).
+  - macOS/Linux: chạy  python3 tao_slide.py  trong Terminal thay cho file .bat.
+
+TẠO VIDEO TỪ LINK SẢN PHẨM (cần Python + ffmpeg)
+  1. Mở san_pham.txt, mỗi khối là 1 video:
+       Dòng đầu: tiêu đề bìa (*chữ cam*)
+       Mỗi dòng sau: link | tên ngắn | mô tả | giá   (sau link có thể bỏ trống, bot tự lấy tên)
+  2. (Tuỳ chọn) bỏ file nhạc tên nhac.mp3 vào thư mục này để có nhạc nền.
+  3. Bấm đúp Tao_video.bat -> video nằm trong video\video_01\video.mp4 ...
+  - Món nào báo "KHÔNG lấy được ảnh": tự lưu ảnh vào video\video_XX\anh\<số thứ tự>_tay.jpg rồi chạy lại.
+  - Mỗi trang dài 3 giây: sửa GIAY_MOI_TRANG trong tao_video.py.
+
+TỰ TÌM SẢN PHẨM TRÊN SHOPEE (Shopee Affiliate Open API)
+  1. Vào affiliate.shopee.vn -> Open API -> lấy App ID và Secret.
+  2. Mở file .env trong thư mục này, dán vào:  SHOPEE_APP_ID=...   SHOPEE_SECRET=...
+  3. Trong san_pham.txt có thể ghi TÊN MÓN thay cho link (vd: "Máy xay tỏi kéo tay | | Băm tỏi 10 giây |").
+     Bot tìm món đó, chọn món bán chạy nhất trong 5 kết quả đầu, lấy ảnh + giá thật.
+     Bỏ trống mô tả -> bot ghi "⭐ 4.9 · Đã bán ...".
+  4. Link affiliate của các món nằm trong video\video_XX\link_gio_hang.txt để gắn giỏ hàng.
+  - API Shopee không trả mô tả chi tiết, nên mô tả vẫn do bạn viết (hoặc dùng sao + lượt bán).
+
+CHƯA CÓ API: ẢNH MINH HỌA TỪ TIKI
+  - Dòng ghi tên món sẽ tự tìm ảnh trên Tiki (không cần khóa). Giá tự gõ vào cột cuối.
+  - Tiki chặn tạm nếu tìm nhiều: bot báo, chờ 15-30 phút chạy lại, ảnh đã có được giữ.
+  - Đổi món ở dòng nào thì xóa ảnh số đó trong video\video_XX\anh để bot tìm lại.
+  - Ảnh Tiki là món tương tự, có thể khác món trong giỏ hàng: nên xem lại trước khi đăng.

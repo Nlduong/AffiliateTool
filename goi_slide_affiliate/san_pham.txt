@@ -1,0 +1,13 @@
+﻿# Mỗi khối (cách nhau 1 dòng trống) = 1 video.
+# Dòng đầu: tiêu đề bìa (*chữ cam*).
+# Các dòng sau: <link Shopee HOẶC tên món> | tên ngắn | mô tả | giá
+#   - Ghi tên món: bot tìm trên Shopee (cần khóa API trong .env), lấy ảnh + giá + link affiliate.
+#   - Bỏ trống mô tả/giá: bot điền "⭐ 4.9 · Đã bán ..." và giá thật.
+# Dòng bắt đầu bằng # bị bỏ qua.
+
+Nhà gọn, sáng, tiện: 5 món *bán chạy* nhất
+https://s.shopee.vn/3LS9tD95bM | Kệ dán tường chữ N | 20k+ đã bán, không cần khoan | 20K
+https://s.shopee.vn/1Bhv5LmN2 | Đèn LED dây cảm biến 5m | Đi tới tự sáng, dán tủ bếp | 132K
+https://s.shopee.vn/1qdM6SEneJ | Đèn LED cảm biến | Tối đi vệ sinh khỏi mò công tắc | 45K
+https://s.shopee.vn/4LKh535HZW | Combo 2 kệ nhà tắm | Dán tường, gọn đồ nhà tắm | 87K
+https://s.shopee.vn/9V2nEXlc72 | Ổ cắm dây 4m có USB | Sạc nhiều máy cùng lúc | 165K
