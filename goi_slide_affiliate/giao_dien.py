@@ -1,6 +1,7 @@
 """Giao diện làm video từng bước: 1) chọn sản phẩm từ file CSV "Lấy link hàng loạt"  2) sửa chữ + gắn ảnh
 3) chọn nhạc, tạo video.  Tab Cài đặt: khóa Shopee API.   Chạy: python giao_dien.py (hoặc Giao_dien.bat)"""
-import csv, json, os, queue, random, re, shutil, subprocess, sys, threading, time, webbrowser
+import csv, glob, json, os, queue, random, re, shutil, sqlite3, subprocess, sys, tempfile, threading, time, webbrowser
+import urllib.error, urllib.request
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -35,6 +36,33 @@ def doc_csv(files):
 
 
 DUOI_ANH = (".jpg", ".jpeg", ".jfif", ".png", ".webp", ".avif")
+GEMINI_MAC_DINH = "gemini-flash-latest"  # Google đổi tên model thì sửa ở tab Cài đặt, không cần sửa code
+GEMINI_DU_PHONG = "gemini-flash-lite-latest"  # tên "latest" Google tự trỏ sang bản mới, ít khi bị ngừng
+_LS_CACHE = {}  # file History -> (lần sửa cuối, danh sách file đã tải)
+
+
+def file_vua_tai(tu_luc):
+    """File (đường dẫn thật) đã tải xong sau mốc tu_luc, dù người dùng lưu ở thư mục nào.
+    Đọc lịch sử tải của mọi trình duyệt nhân Chrome: Chrome (mọi profile), Cốc Cốc, Edge, Brave... (Firefox không có)."""
+    moc = int((tu_luc + 11644473600) * 1e6)  # giờ Unix -> giờ Chrome (micro giây tính từ năm 1601)
+    ra = []
+    for h in glob.glob(os.path.expandvars(r"%LOCALAPPDATA%\*\*\User Data\*\History")):
+        try:
+            sua = os.path.getmtime(h)
+            if _LS_CACHE.get(h, (None,))[0] != sua:  # chỉ đọc lại khi trình duyệt vừa ghi lịch sử
+                tam = Path(tempfile.gettempdir()) / f"_ls_tai_{abs(hash(h))}.db"
+                shutil.copy2(h, tam)  # trình duyệt đang mở thì khóa file gốc -> đọc bản sao
+                db = sqlite3.connect(tam)
+                try:
+                    rows = db.execute("SELECT target_path, end_time FROM downloads WHERE state=1").fetchall()
+                finally:
+                    db.close()  # phải đóng hẳn thì Windows mới cho xóa bản sao
+                tam.unlink(missing_ok=True)
+                _LS_CACHE[h] = (sua, rows)
+            ra += [Path(p) for p, t in _LS_CACHE[h][1] if t > moc and p]
+        except (OSError, sqlite3.Error):
+            pass
+    return ra
 
 
 def thu_muc_tai():
@@ -47,6 +75,42 @@ def thu_muc_tai():
         except (OSError, KeyError, ValueError, TypeError):
             pass
     return [d for d in ds if d.is_dir()]
+
+
+def goi_gemini(prompt):
+    """Gọi Gemini (Google AI Studio), trả về chữ. Key + tên model nằm trong .env (tab Cài đặt)."""
+    key = V.ENV.get("GEMINI_API_KEY", "").strip()
+    chinh = V.ENV.get("GEMINI_MODEL", "").strip() or GEMINI_MAC_DINH
+    body = json.dumps({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 1.0}}).encode()
+    goi_y = {400: "Key sai hoặc yêu cầu không hợp lệ.", 403: "Key không có quyền / chưa bật Gemini API.",
+             404: f"Không có model '{chinh}': sửa tên model ở tab Cài đặt.", 429: "Hết lượt miễn phí, đợi 1 phút rồi thử lại."}
+    loi = ""
+    # model chính quá tải / quá chậm -> thử lại 1 lần, rồi chuyển sang bản lite (nhanh, ít khi quá tải)
+    for model in dict.fromkeys([chinh, GEMINI_DU_PHONG]):
+        for lan in range(2):
+            req = urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                                         body, {"Content-Type": "application/json", "x-goog-api-key": key})  # key trong header
+            try:
+                with urllib.request.urlopen(req, timeout=45) as r:
+                    data = json.load(r)
+                txt = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return txt.replace("**", "")  # AI hay tự in đậm kiểu markdown, Facebook hiện nguyên dấu **
+            except urllib.error.HTTPError as e:
+                if e.code not in (500, 502, 503, 504):
+                    try:
+                        msg = json.loads(e.read()).get("error", {}).get("message", "")
+                    except ValueError:
+                        msg = ""
+                    raise RuntimeError(f"{goi_y.get(e.code, f'Lỗi {e.code}.')}\n\n{msg[:300]}") from None
+                loi = f"Google quá tải ({e.code})"
+            except (TimeoutError, OSError) as e:  # gồm cả mất mạng (URLError là OSError)
+                if isinstance(e, urllib.error.URLError) and not isinstance(e.reason, TimeoutError):
+                    raise RuntimeError(f"Không kết nối được Gemini (mạng?): {e.reason}") from None
+                loi = "AI trả lời quá lâu"
+            except (KeyError, IndexError):
+                raise RuntimeError(f"AI không trả lời (có thể bị chặn nội dung): {str(data)[:300]}") from None
+            time.sleep(3)
+    raise RuntimeError(f"{loi}. Thử lại sau ít phút, hoặc đổi Model ở tab Cài đặt.")
 
 
 def ten_ngan(s):
@@ -122,7 +186,7 @@ class App(tk.Tk):
         self.out = HERE / "video" / datetime.now().strftime("%Y-%m-%d_%H%M%S")
         (self.out / "anh").mkdir(parents=True)
         self.duong_dan.set(str(self.out / "anh"))
-        self.bat_dau = time.time()  # chỉ "hút" những file tải về SAU lúc này từ thư mục Downloads
+        self.bat_dau, self.da_lay = time.time(), set()  # chỉ lấy file tải về SAU lúc này; da_lay: file gốc đã chép
         for j, r in enumerate(chon, 1):
             self.dong_mon(j, r)
         self.nb.select(1)
@@ -130,18 +194,31 @@ class App(tk.Tk):
     def quet_anh(self):
         """Mỗi giây xem thư mục ảnh: ảnh mới lưu vào -> gắn cho món vừa bấm 'Mở link' (món đó có ảnh rồi thì món đầu tiên còn thiếu)."""
         if self.mon:
-            if any(not m["anh"] for m in self.mon):  # Chrome tự lưu vào Downloads (không hỏi chỗ lưu) -> chuyển về thư mục ảnh
+            if any(not m["anh"] for m in self.mon):
+                # file vừa tải, lưu ở BẤT KỲ đâu (lịch sử tải của trình duyệt) + file mới trong Downloads (cho Firefox)
+                # -> chép (không xóa bản gốc) về thư mục ảnh
+                nguon = file_vua_tai(self.bat_dau)
                 for d in thu_muc_tai():
                     for f in d.iterdir():
                         try:
-                            if (f.is_file() and f.suffix.lower() in DUOI_ANH + V.DUOI_VIDEO
-                                    and max(f.stat().st_mtime, f.stat().st_ctime) > self.bat_dau):
-                                dich = self.out / "anh" / f.name
-                                if dich.exists():
-                                    dich = dich.with_stem(f"{f.stem}_{int(time.time())}")
-                                shutil.move(f, dich)
-                        except OSError:  # file đang được ghi dở -> lần quét sau
+                            if max(f.stat().st_mtime, f.stat().st_ctime) > self.bat_dau:
+                                nguon.append(f)
+                        except OSError:
                             pass
+                anh = (self.out / "anh").resolve()
+                for f in nguon:
+                    try:
+                        f = f.resolve()
+                        if (f in self.da_lay or f.parent == anh or f.suffix.lower() not in DUOI_ANH + V.DUOI_VIDEO
+                                or not f.is_file()):
+                            continue
+                        dich = anh / f.name
+                        if dich.exists():
+                            dich = dich.with_stem(f"{f.stem}_{int(time.time())}")
+                        shutil.copy2(f, dich)
+                        self.da_lay.add(f)
+                    except OSError:  # file đang được ghi dở -> lần quét sau
+                        pass
             da = {m["anh"] for m in self.mon}
             moi = sorted((f for f in (self.out / "anh").iterdir() if f not in da
                           and f.suffix.lower() in DUOI_ANH + V.DUOI_VIDEO
@@ -186,9 +263,9 @@ class App(tk.Tk):
         ttk.Entry(tm, textvariable=self.duong_dan, width=70, state="readonly").pack(side="left", padx=6)
         ttk.Button(tm, text="Copy", command=lambda: (self.clipboard_clear(), self.clipboard_append(self.duong_dan.get()))).pack(side="left")
         ttk.Button(tm, text="Mở thư mục", command=lambda: self.mon and os.startfile(self.out / "anh")).pack(side="left", padx=4)
-        ttk.Label(f, text="Bấm 'Mở link' (đường dẫn thư mục được copy sẵn) → chuột phải ảnh → 'Lưu hình ảnh thành...' → "
-                          "Ctrl+V vào ô đường dẫn, Enter → Lưu. Ảnh tự gắn vào món vừa mở link.\n"
-                          "Có video sản phẩm? Chuột phải video → 'Lưu video thành...' cũng vào thư mục này → "
+        ttk.Label(f, text="Bấm 'Mở link' → chuột phải ảnh → 'Lưu hình ảnh thành...' → lưu Ở ĐÂU CŨNG ĐƯỢC: ảnh tự chép về "
+                          "thư mục trên và gắn vào món vừa mở link (Chrome, Cốc Cốc, Edge; Firefox thì lưu vào Downloads).\n"
+                          "Có video sản phẩm? Chuột phải video → 'Lưu video thành...' tương tự → "
                           "video phát 5 giây trong khung ảnh (🎬), tắt tiếng gốc.").pack(anchor="w")
         self.after(1000, self.quet_anh)
 
@@ -255,6 +332,53 @@ class App(tk.Tk):
                 self.fb[k].get("1.0", "end").strip()))).grid(row=2, column=c, sticky="w", padx=3, pady=3)
             fb.columnconfigure(c, weight=1)
         fb.rowconfigure(1, weight=1)
+        self.nut_ai = ttk.Button(fb, text="✨ AI viết caption (bấm lại = bản khác)", command=self.ai_caption)
+        self.nut_ai.grid(row=2, column=0, sticky="e", padx=3)
+        self.nhac_da_chon = None
+
+    def ai_caption(self):
+        """Nhờ Gemini viết nội dung bài Reels thu hút hơn từ danh sách món (link vẫn để ở bình luận ghim)."""
+        if not self.mon:
+            return messagebox.showinfo("Chưa có món", "Làm Bước 1 trước.")
+        if not V.ENV.get("GEMINI_API_KEY", "").strip():
+            self.nb.select(4)
+            return messagebox.showinfo("Thiếu key AI", "Dán Gemini API key ở tab Cài đặt (lấy miễn phí ở aistudio.google.com/apikey).")
+        mon = "\n".join(f"{j}. {m['ten'].get()} | giá {m['gia'].get() or '?'} | đã bán {m['r']['Doanh thu']} | "
+                        f"{m['mota'].get() or m['r']['Tên sản phẩm'][:80]}" for j, m in enumerate(self.mon, 1))
+        prompt = f"""Bạn là người làm nội dung Facebook Reels bán đồ gia dụng affiliate ở Việt Nam, giọng gần gũi, vui.
+Viết NỘI DUNG BÀI (caption) cho 1 video giới thiệu các món dưới đây. Chủ đề video: {self.tieu_de.get().replace('*', '')}
+
+Các món (theo thứ tự trong video):
+{mon}
+
+Yêu cầu:
+- Dòng đầu là câu móc kéo dưới 90 ký tự, gây tò mò hoặc chạm nỗi khổ hằng ngày (đừng mở bằng "Chào mọi người").
+- 1-2 câu ngắn kể lợi ích thực tế, không bịa thông số, không hứa hẹn quá đà.
+- Liệt kê từng món theo số 1️⃣ 2️⃣ 3️⃣..., mỗi dòng: tên + lợi ích chính 3-7 chữ + giá (nếu có).
+- Một câu kêu gọi bình luận dễ trả lời (ví dụ comment số món thích nhất), và nhắc "link mua ở bình luận đầu tiên".
+- Cuối cùng 6-8 hashtag tiếng Việt không dấu, liên quan, có #reels.
+- Emoji vừa phải. Tổng dưới 900 ký tự. KHÔNG chèn link, KHÔNG dùng markdown (**, #tiêu đề).
+Chỉ trả về đúng nội dung caption."""
+        self.nut_ai.config(state="disabled", text="✨ AI đang viết...")
+
+        def chay():
+            try:
+                txt = goi_gemini(prompt)
+                if self.nhac_da_chon:
+                    txt += f'\n\nMusic: "{self.nhac_da_chon.stem}" by Kevin MacLeod (incompetech.com), CC BY 4.0'
+                self.log_q.put(lambda: self.dat_caption(txt))
+            except Exception as e:
+                self.log_q.put(lambda e=e: messagebox.showerror("AI lỗi", str(e)))
+            finally:
+                self.log_q.put(lambda: self.nut_ai.config(state="normal", text="✨ AI viết caption (bấm lại = bản khác)"))
+
+        threading.Thread(target=chay, daemon=True).start()
+
+    def dat_caption(self, txt):
+        self.fb["cap"].delete("1.0", "end")
+        self.fb["cap"].insert("1.0", txt)
+        if self.out.exists():
+            (self.out / "facebook_noi_dung.txt").write_text(txt, encoding="utf-8")
 
     def bai(self):
         v = self.nhac.get()
@@ -312,6 +436,7 @@ class App(tk.Tk):
         threading.Thread(target=self.chay, args=(self.tieu_de.get(), rows, nhac), daemon=True).start()
 
     def goi_y_fb(self, nhac):
+        self.nhac_da_chon = nhac
         """Soạn sẵn nội dung bài + bình luận chứa link affiliate, lưu luôn ra file trong thư mục video."""
         so_icon = "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟".split()
         ic = lambda j: so_icon[j] if j < len(so_icon) else f"{j + 1}."
@@ -454,16 +579,29 @@ class App(tk.Tk):
         for i, (t, v, an) in enumerate((("App ID", self.app_id, ""), ("Secret", self.secret, "•")), 1):
             ttk.Label(f, text=t).grid(row=i, column=0, sticky="w", pady=4)
             ttk.Entry(f, textvariable=v, width=60, show=an).grid(row=i, column=1, sticky="w", pady=4)
-        ttk.Button(f, text="Lưu", command=self.luu).grid(row=3, column=1, sticky="w", pady=10)
-        ttk.Label(f, text="Nhạc: bỏ thêm file .mp3 vào thư mục 'nhac' rồi mở lại giao diện.").grid(row=4, column=0, columnspan=2, sticky="w", pady=(20, 0))
-        ttk.Button(f, text="Mở thư mục nhac", command=lambda: os.startfile(HERE / "nhac")).grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Label(f, text="AI viết caption: Gemini API key (miễn phí, lấy ở aistudio.google.com/apikey)").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(16, 4))
+        ttk.Button(f, text="Mở trang lấy key", command=lambda: webbrowser.open("https://aistudio.google.com/apikey")).grid(
+            row=3, column=1, sticky="e")
+        self.gm_key = tk.StringVar(value=V.ENV.get("GEMINI_API_KEY", "").strip())
+        self.gm_model = tk.StringVar(value=V.ENV.get("GEMINI_MODEL", "").strip() or GEMINI_MAC_DINH)
+        for i, (t, v, an) in enumerate((("Gemini key", self.gm_key, "•"), ("Model", self.gm_model, "")), 4):
+            ttk.Label(f, text=t).grid(row=i, column=0, sticky="w", pady=4)
+            ttk.Entry(f, textvariable=v, width=60, show=an).grid(row=i, column=1, sticky="w", pady=4)
+        ttk.Button(f, text="Lưu", command=self.luu).grid(row=6, column=1, sticky="w", pady=10)
+        ttk.Label(f, text="⚠ Các key lưu trong file .env cạnh tool: khi gửi tool cho người khác thì XÓA file .env đi.").grid(
+            row=7, column=0, columnspan=2, sticky="w")
+        ttk.Label(f, text="Nhạc: bỏ thêm file .mp3 vào thư mục 'nhac' rồi mở lại giao diện.").grid(row=8, column=0, columnspan=2, sticky="w", pady=(20, 0))
+        ttk.Button(f, text="Mở thư mục nhac", command=lambda: os.startfile(HERE / "nhac")).grid(row=9, column=0, sticky="w", pady=4)
 
     def luu(self):
-        (HERE / ".env").write_text("# Lấy ở affiliate.shopee.vn -> Open API. Dán vào sau dấu =\n"
-                                   f"SHOPEE_APP_ID={self.app_id.get().strip()}\nSHOPEE_SECRET={self.secret.get().strip()}\n",
-                                   encoding="utf-8")
-        V.APP_ID, V.SECRET = self.app_id.get().strip(), self.secret.get().strip()
-        messagebox.showinfo("Đã lưu", "Đã lưu khóa API.")
+        v = {"SHOPEE_APP_ID": self.app_id.get().strip(), "SHOPEE_SECRET": self.secret.get().strip(),
+             "GEMINI_API_KEY": self.gm_key.get().strip(), "GEMINI_MODEL": self.gm_model.get().strip()}
+        (HERE / ".env").write_text("# Shopee: affiliate.shopee.vn -> Open API.  Gemini: aistudio.google.com/apikey\n"
+                                   + "".join(f"{k}={x}\n" for k, x in v.items()), encoding="utf-8")
+        V.ENV.update(v)
+        V.APP_ID, V.SECRET = v["SHOPEE_APP_ID"], v["SHOPEE_SECRET"]
+        messagebox.showinfo("Đã lưu", "Đã lưu các khóa API.")
 
 
 if __name__ == "__main__":

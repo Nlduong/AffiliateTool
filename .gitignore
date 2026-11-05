@@ -1,0 +1,8 @@
+# khóa API (Shopee, Gemini) - KHÔNG BAO GIỜ đưa lên GitHub
+.env
+# file tạm của Python / log lỗi giao diện
+__pycache__/
+*.pyc
+loi.txt
+# video, ảnh tải về khi làm video (nặng, không cần lưu lên)
+goi_slide_affiliate/video/
