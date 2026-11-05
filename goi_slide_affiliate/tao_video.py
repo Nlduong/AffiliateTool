@@ -9,6 +9,7 @@ HERE = Path(__file__).parent
 # tìm ffmpeg cả ở thư mục "ffmpeg" cạnh tool và chỗ winget vừa cài (PATH của cửa sổ đang mở chưa kịp cập nhật)
 os.environ["PATH"] = os.pathsep.join([str(HERE / "ffmpeg"), str(HERE / "ffmpeg" / "bin"),
                                       os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Links"), os.environ.get("PATH", "")])
+NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # chạy ffmpeg không bật cửa sổ đen
 THIEU_FFMPEG = None if shutil.which("ffmpeg") else (
     "Máy này chưa có ffmpeg (chương trình xuất video). Đóng giao diện, bấm đúp Giao_dien.bat để tự cài, "
     "hoặc chạy lệnh: winget install -e --id Gyan.FFmpeg.Essentials")
@@ -193,7 +194,7 @@ def make_video(png, n, mp4, nhac, clips=None):
         cmd += ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]
     cmd += ["-t", f"{total:.2f}", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart",
             "-progress", "pipe:1", str(mp4)]
-    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=NO_WIN)
     for line in r.stdout:  # ffmpeg báo "out_time_us=..." liên tục -> % cho thanh tiến độ của giao diện
         if line.startswith("out_time_us=") and TIEN_DO and line[12:].strip().isdigit():
             TIEN_DO(min(1.0, int(line[12:]) / 1e6 / total))
@@ -244,7 +245,7 @@ def tao(cover, rows, folder, nhac=None):
         if file and file.suffix.lower() in DUOI_VIDEO:
             # video sản phẩm: slide dùng 1 khung hình làm ảnh (bìa, trang chốt), lúc xuất video thì phát video đè lên khung
             poster = folder / "anh" / f"{j}_poster.jpg"
-            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "0.5", "-i", str(file), "-frames:v", "1", str(poster)])
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "0.5", "-i", str(file), "-frames:v", "1", str(poster)], creationflags=NO_WIN)
             if poster.exists():
                 clips[j], file = file, poster
             else:

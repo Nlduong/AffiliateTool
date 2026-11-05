@@ -16,5 +16,7 @@ where ffmpeg >nul 2>nul || (
     echo giai nen, chep ffmpeg.exe va ffplay.exe vao thu muc: %~dp0ffmpeg
     pause & exit /b 1
 )
+rem pythonw = mo giao dien khong kem cua so den; cua so nay tu dong lai ngay
+where pythonw >nul 2>nul && (start "" pythonw giao_dien.py & exit /b 0)
 python giao_dien.py
 if errorlevel 1 pause

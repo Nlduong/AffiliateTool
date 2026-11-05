@@ -1,6 +1,6 @@
 """Giao diện làm video từng bước: 1) chọn sản phẩm từ file CSV "Lấy link hàng loạt"  2) sửa chữ + gắn ảnh
 3) chọn nhạc, tạo video.  Tab Cài đặt: khóa Shopee API.   Chạy: python giao_dien.py (hoặc Giao_dien.bat)"""
-import csv, os, queue, random, re, shutil, subprocess, sys, threading, webbrowser
+import csv, json, os, queue, random, re, shutil, subprocess, sys, threading, time, webbrowser
 from datetime import datetime
 from pathlib import Path
 import tkinter as tk
@@ -32,6 +32,21 @@ def doc_csv(files):
     for r in rows.values():
         r["_ban"], r["_gia"], r["_hh"] = so(r["Doanh thu"]), so(r["Giá"]), so(r["Hoa hồng"])
     return sorted(rows.values(), key=lambda r: r["_ban"] * r["_hh"], reverse=True)
+
+
+DUOI_ANH = (".jpg", ".jpeg", ".jfif", ".png", ".webp", ".avif")
+
+
+def thu_muc_tai():
+    """Thư mục Downloads + thư mục tải mặc định đang đặt trong Chrome/Edge (nếu đã đổi sang chỗ khác)."""
+    ds = {Path.home() / "Downloads"}
+    for app in (r"Google\Chrome", r"Microsoft\Edge"):
+        pref = Path(os.path.expandvars(rf"%LOCALAPPDATA%\{app}\User Data\Default\Preferences"))
+        try:
+            ds.add(Path(json.loads(pref.read_text(encoding="utf-8"))["download"]["default_directory"]))
+        except (OSError, KeyError, ValueError, TypeError):
+            pass
+    return [d for d in ds if d.is_dir()]
 
 
 def ten_ngan(s):
@@ -103,6 +118,7 @@ class App(tk.Tk):
         self.out = HERE / "video" / datetime.now().strftime("%Y-%m-%d_%H%M%S")
         (self.out / "anh").mkdir(parents=True)
         self.duong_dan.set(str(self.out / "anh"))
+        self.bat_dau = time.time()  # chỉ "hút" những file tải về SAU lúc này từ thư mục Downloads
         for j, r in enumerate(chon, 1):
             self.dong_mon(j, r)
         self.nb.select(1)
@@ -110,9 +126,21 @@ class App(tk.Tk):
     def quet_anh(self):
         """Mỗi giây xem thư mục ảnh: ảnh mới lưu vào -> gắn cho món vừa bấm 'Mở link' (món đó có ảnh rồi thì món đầu tiên còn thiếu)."""
         if self.mon:
+            if any(not m["anh"] for m in self.mon):  # Chrome tự lưu vào Downloads (không hỏi chỗ lưu) -> chuyển về thư mục ảnh
+                for d in thu_muc_tai():
+                    for f in d.iterdir():
+                        try:
+                            if (f.is_file() and f.suffix.lower() in DUOI_ANH + V.DUOI_VIDEO
+                                    and max(f.stat().st_mtime, f.stat().st_ctime) > self.bat_dau):
+                                dich = self.out / "anh" / f.name
+                                if dich.exists():
+                                    dich = dich.with_stem(f"{f.stem}_{int(time.time())}")
+                                shutil.move(f, dich)
+                        except OSError:  # file đang được ghi dở -> lần quét sau
+                            pass
             da = {m["anh"] for m in self.mon}
-            moi = sorted((f for f in (self.out / "anh").iterdir() if f not in da and not f.name.endswith(".crdownload")
-                          and f.suffix.lower() in (".jpg", ".jpeg", ".jfif", ".png", ".webp", ".avif") + V.DUOI_VIDEO
+            moi = sorted((f for f in (self.out / "anh").iterdir() if f not in da
+                          and f.suffix.lower() in DUOI_ANH + V.DUOI_VIDEO
                           and not f.stem.endswith(("_tay", "_poster"))),
                          key=lambda f: f.stat().st_mtime)
             for f in moi:
@@ -435,5 +463,7 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
+    if sys.stderr is None:  # mở bằng pythonw (không cửa sổ đen): lỗi ghi ra loi.txt để còn xem
+        sys.stderr = open(HERE / "loi.txt", "a", encoding="utf-8")
     assert so("1k+") == 1000 and so("156,0k") == 156000 and so("₫18.720") == 18720 and so("896") == 896
     App().mainloop()
