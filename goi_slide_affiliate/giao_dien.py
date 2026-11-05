@@ -65,6 +65,10 @@ class App(tk.Tk):
         self.buoc1(), self.buoc2(), self.buoc3(), self.y_tuong(), self.cai_dat()
         self.after(100, self.xa_log)
         self.protocol("WM_DELETE_WINDOW", lambda: (self.player and self.player.kill(), self.destroy()))
+        # mở từ .bat bằng pythonw: Windows hay để cửa sổ chìm sau Explorer -> trông như app tự tắt. Kéo lên trên cùng 1 lần.
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(800, lambda: (self.attributes("-topmost", False), self.focus_force()))
         moi = sorted(EXCEL.glob("*.csv"))
         if moi:
             self.nap(moi)
