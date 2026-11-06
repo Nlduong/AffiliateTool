@@ -113,6 +113,11 @@ def goi_gemini(prompt):
     raise RuntimeError(f"{loi}. Thử lại sau ít phút, hoặc đổi Model ở tab Cài đặt.")
 
 
+def so_mon(tieu_de, n):
+    """'... *5 món* ...' -> '... *4 món* ...' theo số món thật. Chỉ đổi con số đứng ngay trước chữ 'món'."""
+    return re.sub(r"\d+(?=\s*món)", str(n), tieu_de, count=1, flags=re.I)
+
+
 def ten_ngan(s):
     s = re.sub(r"^\s*(?:[\[(【][^\])】]*[\])】]\s*)+", "", s)  # bỏ "[FREE SHIP]" đầu tên
     return re.split(r"[,/|\-]", s)[0].strip().capitalize()[:35]
@@ -189,6 +194,7 @@ class App(tk.Tk):
         self.bat_dau, self.da_lay = time.time(), set()  # chỉ lấy file tải về SAU lúc này; da_lay: file gốc đã chép
         for j, r in enumerate(chon, 1):
             self.dong_mon(j, r)
+        self.tieu_de.set(so_mon(self.tieu_de.get(), len(self.mon)))
         self.nb.select(1)
 
     def quet_anh(self):
@@ -340,6 +346,7 @@ class App(tk.Tk):
         """Nhờ Gemini viết nội dung bài Reels thu hút hơn từ danh sách món (link vẫn để ở bình luận ghim)."""
         if not self.mon:
             return messagebox.showinfo("Chưa có món", "Làm Bước 1 trước.")
+        self.tieu_de.set(so_mon(self.tieu_de.get(), len(self.mon)))
         if not V.ENV.get("GEMINI_API_KEY", "").strip():
             self.nb.select(4)
             return messagebox.showinfo("Thiếu key AI", "Dán Gemini API key ở tab Cài đặt (lấy miễn phí ở aistudio.google.com/apikey).")
@@ -428,6 +435,8 @@ Chỉ trả về đúng nội dung caption."""
             rows.append([m["r"]["Link ưu đãi"], m["ten"].get().strip(), m["mota"].get().strip(), m["gia"].get().strip()])
         (self.out / "link_gio_hang.txt").write_text(
             "\n".join(f"{j}. {m['ten'].get()}\n   {m['r']['Link ưu đãi']}" for j, m in enumerate(self.mon, 1)), encoding="utf-8")
+        # tiêu đề chọn từ ý tưởng/gõ tay hay ghi "5 món" trong khi chỉ chọn 4 -> sửa theo số món thật
+        self.tieu_de.set(so_mon(self.tieu_de.get(), len(self.mon)))
         nhac = self.bai()
         self.goi_y_fb(nhac)
         self.nut.config(state="disabled")
